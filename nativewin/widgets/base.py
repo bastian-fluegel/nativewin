@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import ctypes
-from typing import Callable, Optional, TYPE_CHECKING, Union
+from typing import Optional, TYPE_CHECKING
 
-from nativewin.core import win32
+from nativewin.core import metrics, win32
 from nativewin.layout.manager import LayoutSlot, register_widget
-from nativewin.state.binding import BoolState, State
 
 if TYPE_CHECKING:
     from nativewin.window.form import Window
@@ -27,6 +25,7 @@ class Widget:
     _class_name: str = "STATIC"
     _window_style: int = win32.WS_CHILD | win32.WS_VISIBLE | win32.WS_CLIPSIBLINGS
     _window_ex_style: int = 0
+    fills_width: bool = True
 
     def __init__(self) -> None:
         self.hwnd: Optional[win32.HWND] = None
@@ -36,9 +35,27 @@ class Widget:
         self._window: Optional["Window"] = None
         self._visible = True
 
+    def min_width(self) -> int:
+        return metrics.px(20)
+
+    def intrinsic_width(self) -> int:
+        return self.min_width()
+
+    def preferred_width(self, available: int) -> int:
+        """Width used by layout. Stretch widgets grow; others keep intrinsic size."""
+        if self.fills_width:
+            return max(self.min_width(), available)
+        return self.intrinsic_width()
+
     def preferred_height(self, width: int) -> int:
         """Return preferred height in pixels for layout."""
-        return 24
+        return metrics.edit_height()
+
+    def _create_width(self) -> int:
+        return 80
+
+    def _create_height(self) -> int:
+        return self.preferred_height(80)
 
     def create(self, window: "Window", parent_hwnd: win32.HWND) -> None:
         """Create the Win32 child window."""
@@ -54,15 +71,15 @@ class Widget:
             self._window_style,
             0,
             0,
-            100,
-            self.preferred_height(100),
+            self._create_width(),
+            self._create_height(),
             parent_hwnd,
             self.control_id,
             win32.kernel32.GetModuleHandleW(None),
             None,
         )
         self.hwnd = hwnd
-        self._apply_theme()
+        metrics.apply_ui_font(hwnd)
         self._on_created()
 
     def _create_text(self) -> str:
@@ -71,22 +88,14 @@ class Widget:
     def _on_created(self) -> None:
         pass
 
-    def _apply_theme(self) -> None:
-        if not win32.IS_WINDOWS or not self.hwnd:
-            return
-        if win32.uxtheme is not None:
-            win32.uxtheme.SetWindowTheme(self.hwnd, "", "")
-
-    def move_to_slot(self, scroll_offset: int = 0) -> None:
+    def move_to_slot(self, offset_x: int = 0, offset_y: int = 0) -> None:
         """Position control according to computed layout slot."""
         if not win32.IS_WINDOWS or not self.hwnd:
             return
-        x = self._slot.x
-        y = self._slot.y - scroll_offset
         win32.user32.MoveWindow(
             self.hwnd,
-            x,
-            y,
+            self._slot.x - offset_x,
+            self._slot.y - offset_y,
             max(1, self._slot.width),
             max(1, self._slot.height),
             True,

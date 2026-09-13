@@ -30,20 +30,40 @@ def push_event(event: Any) -> None:
     _event_queue.put(event)
 
 
+def _window_stopped() -> bool:
+    window = _active_window
+    if window is None:
+        return False
+    if not window.running:
+        return True
+    if win32.IS_WINDOWS and window.hwnd and not win32.user32.IsWindow(window.hwnd):
+        window.running = False
+        return True
+    return False
+
+
 def get_event(block: bool = True, timeout: Optional[float] = None) -> Any:
     """Return the next queued event after pumping Win32 messages.
 
     Blocks until an event is available unless block=False.
+    Returns None when the active window has been closed (so the caller
+    can leave ``while nw.is_running(win)`` instead of hanging on GetMessage).
     """
     if win32.IS_WINDOWS:
         _pump_messages(block=False)
+    if _window_stopped():
+        return None
 
     if not block:
         try:
             return _event_queue.get_nowait()
         except queue.Empty:
             if win32.IS_WINDOWS:
+                if _window_stopped():
+                    return None
                 _pump_messages(block=True, timeout=timeout)
+                if _window_stopped():
+                    return None
                 try:
                     return _event_queue.get_nowait()
                 except queue.Empty:
@@ -51,8 +71,12 @@ def get_event(block: bool = True, timeout: Optional[float] = None) -> Any:
             return None
 
     while True:
+        if _window_stopped():
+            return None
         if win32.IS_WINDOWS:
             _pump_messages(block=True, timeout=timeout)
+        if _window_stopped():
+            return None
         try:
             return _event_queue.get_nowait()
         except queue.Empty:
@@ -64,9 +88,13 @@ def get_event(block: bool = True, timeout: Optional[float] = None) -> Any:
 
 def is_running(window: "Window") -> bool:
     """Return True while the window message loop should continue."""
+    if not window.running:
+        return False
     if not win32.IS_WINDOWS:
         return False
-    return window.running and win32.user32.IsWindow(window.hwnd)
+    if not window.hwnd:
+        return False
+    return bool(win32.user32.IsWindow(window.hwnd))
 
 
 def _pump_messages(block: bool = False, timeout: Optional[float] = None) -> None:

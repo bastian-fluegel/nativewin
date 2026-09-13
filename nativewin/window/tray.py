@@ -78,8 +78,8 @@ class TrayIcon:
         nid.uCallbackMessage = win32.WM_TRAYICON
         nid.hIcon = self._icon_handle
         nid.szTip = self.tooltip[:127]
-        win32.shell32.Shell_NotifyIconW(win32.NIM_ADD, ctypes.byref(nid))
-
+        if not win32.shell32.Shell_NotifyIconW(win32.NIM_ADD, ctypes.byref(nid)):
+            return
         nid.uVersion = win32.NID_VERSION_4
         win32.shell32.Shell_NotifyIconW(win32.NIM_SETVERSION, ctypes.byref(nid))
 

@@ -173,7 +173,7 @@ def load_stock_icon(name: str) -> win32.HICON:
     }
     icon_id = mapping.get(name.lower(), win32.IDI_APPLICATION)
     handle = win32.user32.LoadIconW(None, icon_id)
-    return win32.HICON(handle)
+    return handle
 
 
 def destroy_icon(icon: win32.HICON) -> None:

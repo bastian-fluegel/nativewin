@@ -72,6 +72,7 @@ WM_ERASEBKGND = 0x0014
 WM_SETTEXT = 0x000C
 WM_GETTEXT = 0x000D
 WM_GETTEXTLENGTH = 0x000E
+WM_SETFONT = 0x0030
 WM_COMMAND = 0x0111
 WM_SYSCOMMAND = 0x0112
 WM_HSCROLL = 0x0114
@@ -87,10 +88,16 @@ WM_CTLCOLORLISTBOX = 0x0134
 WM_DRAWITEM = 0x002B
 WM_MEASUREITEM = 0x002C
 WM_CONTEXTMENU = 0x007B
+WM_LBUTTONUP = 0x0202
+WM_LBUTTONDBLCLK = 0x0203
+WM_RBUTTONUP = 0x0204
+WM_RBUTTONDOWN = 0x0205
 WM_USER = 0x0400
 
 # System tray -----------------------------------------------------------------
 WM_TRAYICON = WM_USER + 1
+NIN_SELECT = WM_USER + 0
+NIN_KEYSELECT = WM_USER + 1
 NIM_ADD = 0x00000000
 NIM_MODIFY = 0x00000001
 NIM_DELETE = 0x00000002
@@ -178,14 +185,32 @@ LBS_DISABLENOSCROLL = 0x1000
 LBS_EXTENDEDSEL = 0x0800
 LBS_STANDARD = LBS_NOTIFY | LBS_SORT | WS_VSCROLL | WS_BORDER
 
-# Scroll bar commands
+# Scroll bar orientation / commands
+SB_HORZ = 0
+SB_VERT = 1
+SB_CTL = 2
+SB_BOTH = 3
 SB_LINEUP = 0
+SB_LINELEFT = 0
 SB_LINEDOWN = 1
+SB_LINERIGHT = 1
 SB_PAGEUP = 2
+SB_PAGELEFT = 2
 SB_PAGEDOWN = 3
+SB_PAGERIGHT = 3
 SB_THUMBPOSITION = 4
+SB_THUMBTRACK = 5
 SB_TOP = 6
+SB_LEFT = 6
 SB_BOTTOM = 7
+SB_RIGHT = 7
+SB_ENDSCROLL = 8
+SIF_RANGE = 0x0001
+SIF_PAGE = 0x0002
+SIF_POS = 0x0004
+SIF_DISABLENOSCROLL = 0x0008
+SIF_TRACKPOS = 0x0010
+SIF_ALL = SIF_RANGE | SIF_PAGE | SIF_POS | SIF_TRACKPOS
 
 # ShowWindow
 SW_HIDE = 0
@@ -215,6 +240,47 @@ EN_CHANGE = 0x0300
 EN_UPDATE = 0x0400
 LBN_SELCHANGE = 1
 LBN_DBLCLK = 2
+CBN_SELCHANGE = 1
+CBN_DBLCLK = 2
+
+# Edit messages
+EM_SETSEL = 0x00B1
+EM_REPLACESEL = 0x00C2
+EM_GETSEL = 0x00B0
+EM_LINESCROLL = 0x00B6
+
+# Button messages
+BM_GETCHECK = 0x00F0
+BM_SETCHECK = 0x00F1
+
+# Static messages
+STM_SETICON = 0x0170
+
+# Listbox messages
+LB_ADDSTRING = 0x0180
+LB_RESETCONTENT = 0x0184
+LB_SETCURSEL = 0x0186
+LB_GETCURSEL = 0x0188
+LB_GETTEXT = 0x0189
+LB_FINDSTRING = 0x018F
+LB_GETTEXTLEN = 0x018A
+
+# Combobox styles / messages
+CBS_SIMPLE = 0x0001
+CBS_DROPDOWN = 0x0002
+CBS_DROPDOWNLIST = 0x0003
+CBS_AUTOHSCROLL = 0x0040
+CBS_HASSTRINGS = 0x0200
+CB_ADDSTRING = 0x0143
+CB_DELETESTRING = 0x0144
+CB_GETCURSEL = 0x0147
+CB_GETLBTEXT = 0x0148
+CB_GETLBTEXTLEN = 0x0149
+CB_INSERTSTRING = 0x014A
+CB_RESETCONTENT = 0x014B
+CB_FINDSTRING = 0x014C
+CB_SETCURSEL = 0x014E
+CB_FINDSTRINGEXACT = 0x0158
 
 # Class styles
 CS_HREDRAW = 0x0002
@@ -232,11 +298,24 @@ WS_EX_TRANSPARENT = 0x00000020
 
 # Colors
 COLOR_WINDOW = 5
+COLOR_WINDOWTEXT = 8
 COLOR_BTNFACE = 15
 COLOR_3DFACE = COLOR_BTNFACE
 
 # GDI
 TRANSPARENT = 1
+OPAQUE = 2
+DEFAULT_GUI_FONT = 17
+LOGPIXELSX = 88
+LOGPIXELSY = 90
+LF_FACESIZE = 32
+SPI_GETNONCLIENTMETRICS = 0x0029
+SM_CXVSCROLL = 2
+SM_CYHSCROLL = 3
+SM_CXEDGE = 45
+SM_CYEDGE = 46
+SM_CXBORDER = 5
+SM_CYBORDER = 6
 SRCCOPY = 0x00CC0020
 BI_RGB = 0
 DIB_RGB_COLORS = 0
@@ -436,6 +515,78 @@ class ICONINFO(ctypes.Structure):
     ]
 
 
+class SIZE(ctypes.Structure):
+    _fields_ = [("cx", ctypes.c_long), ("cy", ctypes.c_long)]
+
+
+class LOGFONTW(ctypes.Structure):
+    _fields_ = [
+        ("lfHeight", wintypes.LONG),
+        ("lfWidth", wintypes.LONG),
+        ("lfEscapement", wintypes.LONG),
+        ("lfOrientation", wintypes.LONG),
+        ("lfWeight", wintypes.LONG),
+        ("lfItalic", wintypes.BYTE),
+        ("lfUnderline", wintypes.BYTE),
+        ("lfStrikeOut", wintypes.BYTE),
+        ("lfCharSet", wintypes.BYTE),
+        ("lfOutPrecision", wintypes.BYTE),
+        ("lfClipPrecision", wintypes.BYTE),
+        ("lfQuality", wintypes.BYTE),
+        ("lfPitchAndFamily", wintypes.BYTE),
+        ("lfFaceName", wintypes.WCHAR * LF_FACESIZE),
+    ]
+
+
+class NONCLIENTMETRICSW(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.UINT),
+        ("iBorderWidth", ctypes.c_int),
+        ("iScrollWidth", ctypes.c_int),
+        ("iScrollHeight", ctypes.c_int),
+        ("iCaptionWidth", ctypes.c_int),
+        ("iCaptionHeight", ctypes.c_int),
+        ("lfCaptionFont", LOGFONTW),
+        ("iSmCaptionWidth", ctypes.c_int),
+        ("iSmCaptionHeight", ctypes.c_int),
+        ("lfSmCaptionFont", LOGFONTW),
+        ("iMenuWidth", ctypes.c_int),
+        ("iMenuHeight", ctypes.c_int),
+        ("lfMenuFont", LOGFONTW),
+        ("lfStatusFont", LOGFONTW),
+        ("lfMessageFont", LOGFONTW),
+        ("iPaddedBorderWidth", ctypes.c_int),
+    ]
+
+
+class SCROLLINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.UINT),
+        ("fMask", wintypes.UINT),
+        ("nMin", ctypes.c_int),
+        ("nMax", ctypes.c_int),
+        ("nPage", wintypes.UINT),
+        ("nPos", ctypes.c_int),
+        ("nTrackPos", ctypes.c_int),
+    ]
+
+
+class LParam:
+    """ctypes converter: SendMessage LPARAM may be an int, pointer, or Unicode string."""
+
+    @classmethod
+    def from_param(cls, obj):  # noqa: ANN206
+        if obj is None:
+            return ctypes.c_ssize_t(0)
+        if isinstance(obj, str):
+            return ctypes.c_wchar_p(obj)
+        if isinstance(obj, (bytes, bytearray)):
+            return ctypes.c_char_p(bytes(obj))
+        if isinstance(obj, (int, ctypes.c_ssize_t, ctypes.c_size_t)):
+            return ctypes.c_ssize_t(int(obj))
+        return ctypes.c_void_p.from_param(obj)
+
+
 # WNDPROC type alias
 # (defined above for cross-platform import safety)
 
@@ -523,7 +674,7 @@ def setup_prototypes() -> None:
     user32.GetWindowTextLengthW.argtypes = [HWND]
 
     user32.SendMessageW.restype = LRESULT
-    user32.SendMessageW.argtypes = [HWND, wintypes.UINT, WPARAM, LPARAM]
+    user32.SendMessageW.argtypes = [HWND, wintypes.UINT, WPARAM, LParam]
 
     user32.PostMessageW.restype = wintypes.BOOL
     user32.PostMessageW.argtypes = [HWND, wintypes.UINT, WPARAM, LPARAM]
@@ -587,14 +738,12 @@ def setup_prototypes() -> None:
     user32.GetParent.restype = HWND
     user32.GetParent.argtypes = [HWND]
 
-    user32.SetWindowTheme.restype = HRESULT
-    user32.SetWindowTheme.argtypes = [HWND, wintypes.LPCWSTR, wintypes.LPCWSTR]
-
+    # MAKEINTRESOURCE IDs are integer pointers, not real LPCWSTR strings.
     user32.LoadIconW.restype = HICON
-    user32.LoadIconW.argtypes = [HINSTANCE, wintypes.LPCWSTR]
+    user32.LoadIconW.argtypes = [HINSTANCE, ctypes.c_void_p]
 
     user32.LoadCursorW.restype = HCURSOR
-    user32.LoadCursorW.argtypes = [HINSTANCE, wintypes.LPCWSTR]
+    user32.LoadCursorW.argtypes = [HINSTANCE, ctypes.c_void_p]
 
     user32.LoadImageW.restype = wintypes.HANDLE
     user32.LoadImageW.argtypes = [
@@ -633,7 +782,8 @@ def setup_prototypes() -> None:
         ctypes.POINTER(wintypes.DWORD),
     ]
 
-    user32.TrackPopupMenu.restype = wintypes.BOOL
+    # TPM_RETURNCMD returns the selected command id (not a BOOL).
+    user32.TrackPopupMenu.restype = ctypes.c_int
     user32.TrackPopupMenu.argtypes = [
         HMENU,
         wintypes.UINT,
@@ -664,11 +814,57 @@ def setup_prototypes() -> None:
     user32.GetCursorPos.restype = wintypes.BOOL
     user32.GetCursorPos.argtypes = [ctypes.POINTER(POINT)]
 
+    user32.GetDC.restype = HDC
+    user32.GetDC.argtypes = [HWND]
+
+    user32.ReleaseDC.restype = ctypes.c_int
+    user32.ReleaseDC.argtypes = [HWND, HDC]
+
+    user32.GetSysColor.restype = COLORREF
+    user32.GetSysColor.argtypes = [ctypes.c_int]
+
+    user32.GetSysColorBrush.restype = HBRUSH
+    user32.GetSysColorBrush.argtypes = [ctypes.c_int]
+
+    user32.AdjustWindowRectEx.restype = wintypes.BOOL
+    user32.AdjustWindowRectEx.argtypes = [
+        ctypes.POINTER(RECT),
+        wintypes.DWORD,
+        wintypes.BOOL,
+        wintypes.DWORD,
+    ]
+
+    user32.ShowScrollBar.restype = wintypes.BOOL
+    user32.ShowScrollBar.argtypes = [HWND, ctypes.c_int, wintypes.BOOL]
+
+    user32.SetScrollInfo.restype = ctypes.c_int
+    user32.SetScrollInfo.argtypes = [
+        HWND,
+        ctypes.c_int,
+        ctypes.POINTER(SCROLLINFO),
+        wintypes.BOOL,
+    ]
+
+    user32.GetScrollInfo.restype = wintypes.BOOL
+    user32.GetScrollInfo.argtypes = [
+        HWND,
+        ctypes.c_int,
+        ctypes.POINTER(SCROLLINFO),
+    ]
+
+    user32.SystemParametersInfoW.restype = wintypes.BOOL
+    user32.SystemParametersInfoW.argtypes = [
+        wintypes.UINT,
+        wintypes.UINT,
+        wintypes.LPVOID,
+        wintypes.UINT,
+    ]
+
+    user32.GetDialogBaseUnits.restype = wintypes.LONG
+    user32.GetDialogBaseUnits.argtypes = []
+
     kernel32.GetModuleHandleW.restype = HINSTANCE
     kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
-
-    kernel32.SetProcessDpiAwarenessContext.restype = wintypes.BOOL
-    kernel32.SetProcessDpiAwarenessContext.argtypes = [ctypes.c_void_p]
 
     kernel32.CreateActCtxW.restype = wintypes.HANDLE
     kernel32.CreateActCtxW.argtypes = [ctypes.POINTER(ACTCTXW)]
@@ -691,6 +887,32 @@ def setup_prototypes() -> None:
     gdi32.GetStockObject.restype = HGDIOBJ
     gdi32.GetStockObject.argtypes = [ctypes.c_int]
 
+    gdi32.SelectObject.restype = HGDIOBJ
+    gdi32.SelectObject.argtypes = [HDC, HGDIOBJ]
+
+    gdi32.GetDeviceCaps.restype = ctypes.c_int
+    gdi32.GetDeviceCaps.argtypes = [HDC, ctypes.c_int]
+
+    gdi32.GetTextExtentPoint32W.restype = wintypes.BOOL
+    gdi32.GetTextExtentPoint32W.argtypes = [
+        HDC,
+        wintypes.LPCWSTR,
+        ctypes.c_int,
+        ctypes.POINTER(SIZE),
+    ]
+
+    gdi32.CreateFontIndirectW.restype = HFONT
+    gdi32.CreateFontIndirectW.argtypes = [ctypes.POINTER(LOGFONTW)]
+
+    gdi32.SetBkColor.restype = COLORREF
+    gdi32.SetBkColor.argtypes = [HDC, COLORREF]
+
+    gdi32.SetTextColor.restype = COLORREF
+    gdi32.SetTextColor.argtypes = [HDC, COLORREF]
+
+    gdi32.SetBkMode.restype = ctypes.c_int
+    gdi32.SetBkMode.argtypes = [HDC, ctypes.c_int]
+
     shell32.Shell_NotifyIconW.restype = wintypes.BOOL
     shell32.Shell_NotifyIconW.argtypes = [wintypes.DWORD, ctypes.POINTER(NOTIFYICONDATAW)]
 
@@ -701,6 +923,13 @@ def setup_prototypes() -> None:
             wintypes.LPCWSTR,
             wintypes.LPCWSTR,
         ]
+
+    # user32 on Windows 10 1703+; missing on older builds.
+    try:
+        user32.SetProcessDpiAwarenessContext.restype = wintypes.BOOL
+        user32.SetProcessDpiAwarenessContext.argtypes = [ctypes.c_void_p]
+    except AttributeError:
+        pass
 
 
 setup_prototypes()

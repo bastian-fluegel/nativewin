@@ -8,7 +8,7 @@ from typing import List, Optional, TYPE_CHECKING
 from nativewin.core import bootstrap  # noqa: F401  — side-effect init
 from nativewin.core import win32
 from nativewin.layout.manager import LayoutContainer, measure_container
-from nativewin.layout.scroll import ScrollState, forward_wheel_to_parent
+from nativewin.layout.scroll import ScrollState
 from nativewin.window import events
 from nativewin.window.tray import TrayIcon
 
@@ -49,6 +49,7 @@ class Window:
         self._scroll = ScrollState(self)
         self._wndproc_ref: Optional[win32.WNDPROC] = None  # GC guard
         self._brush = None
+        self._in_relayout = False
 
         from nativewin.layout.manager import set_active_window
 
@@ -70,23 +71,30 @@ class Window:
         wc.lpfnWndProc = self._wndproc_ref
         wc.hInstance = win32.kernel32.GetModuleHandleW(None)
         wc.hCursor = win32.user32.LoadCursorW(None, win32.IDC_ARROW)
-        wc.hbrBackground = win32.gdi32.CreateSolidBrush(0x00FFFFFF)  # white
+        wc.hbrBackground = win32.user32.GetSysColorBrush(win32.COLOR_3DFACE)
         wc.lpszClassName = self._class_name
-        self._brush = wc.hbrBackground
+        self._brush = None
 
         win32.user32.RegisterClassW(ctypes.byref(wc))
         Window._class_registered = True
 
     def _create_hwnd(self) -> None:
+        style = win32.WS_OVERLAPPEDWINDOW | win32.WS_CLIPCHILDREN
+        box = win32.RECT()
+        box.left = 0
+        box.top = 0
+        box.right = self.width
+        box.bottom = self.height
+        win32.user32.AdjustWindowRectEx(ctypes.byref(box), style, False, 0)
         hwnd = win32.user32.CreateWindowExW(
             0,
             self._class_name,
             self.title,
-            win32.WS_OVERLAPPEDWINDOW | win32.WS_CLIPCHILDREN,
+            style,
             win32.CW_USEDEFAULT,
             win32.CW_USEDEFAULT,
-            self.width,
-            self.height,
+            box.width,
+            box.height,
             None,
             None,
             win32.kernel32.GetModuleHandleW(None),
@@ -98,6 +106,7 @@ class Window:
             win32.GWL_USERDATA,
             id(self),
         )
+        win32.user32.ShowScrollBar(hwnd, win32.SB_BOTH, False)
         win32.user32.ShowWindow(hwnd, win32.SW_SHOW)
         win32.user32.UpdateWindow(hwnd)
 
@@ -112,14 +121,41 @@ class Window:
             return 0
 
         if msg == win32.WM_SIZE:
-            self.relayout()
+            if self.running:
+                self.relayout()
             return 0
 
         if msg == win32.WM_MOUSEWHEEL:
             from nativewin.layout.scroll import wheel_delta
 
-            self._scroll.apply_wheel(wheel_delta(int(wparam)))
+            if self._scroll.show_v:
+                self._scroll.apply_wheel(wheel_delta(int(wparam)))
             return 0
+
+        if msg == win32.WM_MOUSEHWHEEL:
+            from nativewin.layout.scroll import wheel_delta
+
+            if self._scroll.show_h:
+                self._scroll.apply_wheel(wheel_delta(int(wparam)), horizontal=True)
+            return 0
+
+        if msg == win32.WM_VSCROLL:
+            self._scroll.apply_command(win32.SB_VERT, int(wparam) & 0xFFFF, hwnd)
+            return 0
+
+        if msg == win32.WM_HSCROLL:
+            self._scroll.apply_command(win32.SB_HORZ, int(wparam) & 0xFFFF, hwnd)
+            return 0
+
+        if msg in (win32.WM_CTLCOLORSTATIC, win32.WM_CTLCOLORBTN):
+            hdc = wparam
+            face = win32.user32.GetSysColor(win32.COLOR_3DFACE)
+            win32.gdi32.SetBkMode(hdc, win32.OPAQUE)
+            win32.gdi32.SetBkColor(hdc, face)
+            win32.gdi32.SetTextColor(
+                hdc, win32.user32.GetSysColor(win32.COLOR_WINDOWTEXT)
+            )
+            return win32.user32.GetSysColorBrush(win32.COLOR_3DFACE)
 
         if msg == win32.WM_COMMAND:
             ctrl_id = wparam & 0xFFFF
@@ -132,20 +168,36 @@ class Window:
             return 0
 
         if msg == win32.WM_TRAYICON:
-            if lparam == 0x0204:  # WM_RBUTTONUP
+            # Classic: lParam is the mouse message. NOTIFYICON_VERSION_4:
+            # LOWORD(lParam) is WM_CONTEXTMENU / NIN_SELECT / ...
+            notify = int(lparam) & 0xFFFF
+            if notify in (
+                win32.WM_RBUTTONUP,
+                win32.WM_CONTEXTMENU,
+                win32.NIN_KEYSELECT,
+            ):
                 for tray in self._trays:
                     tray.show_context_menu()
-            elif lparam == 0x0203:  # WM_LBUTTONDBLCLK
+            elif notify in (
+                win32.WM_LBUTTONDBLCLK,
+                win32.WM_LBUTTONUP,
+                win32.NIN_SELECT,
+            ):
                 self.show()
             return 0
 
         if msg == win32.WM_CLOSE:
             self.running = False
-            win32.user32.PostQuitMessage(0)
+            win32.user32.DestroyWindow(hwnd)
             return 0
 
         if msg == win32.WM_DESTROY:
             self.running = False
+            for tray in list(self._trays):
+                tray.destroy()
+            self._trays.clear()
+            self.hwnd = None
+            win32.user32.PostQuitMessage(0)
             return 0
 
         return win32.user32.DefWindowProcW(hwnd, msg, wparam, lparam)
@@ -155,7 +207,6 @@ class Window:
         data = win32.user32.GetWindowLongPtrW(hwnd, win32.GWL_USERDATA)
         if not data:
             return None
-        # USERDATA stores id(self); lookup via active window as fallback
         return events.get_active_window()
 
     def register_widget(self, widget: "Widget") -> None:
@@ -193,59 +244,84 @@ class Window:
         else:
             for child in container.children:
                 if isinstance(child, LayoutContainer):
-                    if child.kind == "groupbox":
-                        self._create_layout_widgets(child, parent_hwnd)
-                    else:
-                        self._create_layout_widgets(child, parent_hwnd)
+                    self._create_layout_widgets(child, parent_hwnd)
                 else:
                     child.create(self, parent_hwnd)
 
     def relayout(self) -> None:
-        if not self._root_layout or not win32.IS_WINDOWS:
+        if not self._root_layout or not win32.IS_WINDOWS or not self.hwnd:
             return
+        if self._in_relayout:
+            return
+        self._in_relayout = True
+        try:
+            self._relayout_impl()
+        finally:
+            self._in_relayout = False
 
+    def _client_size(self) -> tuple[int, int]:
         rect = win32.RECT()
         win32.user32.GetClientRect(self.hwnd, ctypes.byref(rect))
-        client_w = rect.width
-        client_h = rect.height
+        return rect.width, rect.height
 
-        measure_container(self._root_layout, client_w, client_h)
-        self._scroll.content_height = getattr(
-            self._root_layout, "measured_height", client_h
+    def _relayout_impl(self) -> None:
+        for _ in range(3):
+            client_w, client_h = self._client_size()
+            measure_container(self._root_layout, client_w, client_h)
+            content_w = getattr(self._root_layout, "measured_width", client_w)
+            content_h = getattr(self._root_layout, "measured_height", client_h)
+            self._scroll.content_width = content_w
+            self._scroll.content_height = content_h
+            self._scroll.viewport_width = client_w
+            self._scroll.viewport_height = client_h
+            self._scroll.clamp()
+            self._scroll.sync_bars(self.hwnd)
+            new_w, new_h = self._client_size()
+            if new_w == client_w and new_h == client_h:
+                break
+
+        self._position_layout(
+            self._root_layout,
+            self._scroll.offset_x,
+            self._scroll.offset_y,
+            apply_scroll=True,
         )
-        self._scroll.viewport_height = client_h
-        self._scroll.clamp()
-
-        self._position_layout(self._root_layout, self._scroll.offset_y)
-
         for frame in self._group_frames:
-            frame._apply_theme()
+            frame.restack()
 
     def _position_layout(
         self,
         container: LayoutContainer,
-        scroll_offset: int,
+        offset_x: int,
+        offset_y: int,
+        apply_scroll: bool,
     ) -> None:
         from nativewin.layout.manager import LayoutSlot
+
+        ox = offset_x if apply_scroll else 0
+        oy = offset_y if apply_scroll else 0
 
         if container.kind == "groupbox" and hasattr(container, "_frame"):
             frame = container._frame
             mh = getattr(container, "measured_height", 100)
+            mw = getattr(container, "measured_width", container._slot.width)
             frame._frame_height = mh  # noqa: SLF001
-            if hasattr(container, "_slot"):
-                frame._slot = LayoutSlot(  # noqa: SLF001
-                    container._slot.x,  # noqa: SLF001
-                    container._slot.y,  # noqa: SLF001
-                    container._slot.width,  # noqa: SLF001
-                    mh,
-                )
-            frame.move_to_slot(scroll_offset)
+            frame._slot = LayoutSlot(  # noqa: SLF001
+                container._slot.x,
+                container._slot.y,
+                mw or container._slot.width,
+                mh,
+            )
+            frame.move_to_slot(ox, oy)
 
         for child in container.children:
             if isinstance(child, LayoutContainer):
-                self._position_layout(child, scroll_offset)
+                nested_scroll = apply_scroll and container.kind != "groupbox"
+                self._position_layout(child, offset_x, offset_y, nested_scroll)
             else:
-                child.move_to_slot(scroll_offset)
+                child_ox = ox if apply_scroll and container.kind != "groupbox" else 0
+                child_oy = oy if apply_scroll and container.kind != "groupbox" else 0
+                child.move_to_slot(child_ox, child_oy)
 
     def add_tray(self, tray: TrayIcon) -> None:
         tray.window = self
@@ -266,13 +342,15 @@ class Window:
             win32.user32.PostMessageW(self.hwnd, win32.WM_CLOSE, 0, 0)
 
     def destroy(self) -> None:
+        self.running = False
         for tray in list(self._trays):
             tray.destroy()
+        self._trays.clear()
         for widget in self._widgets:
             widget.destroy()
-        if win32.IS_WINDOWS and self.hwnd:
+        if win32.IS_WINDOWS and self.hwnd and win32.user32.IsWindow(self.hwnd):
             win32.user32.DestroyWindow(self.hwnd)
-            self.hwnd = None
+        self.hwnd = None
         if self._brush and win32.IS_WINDOWS:
             win32.gdi32.DeleteObject(self._brush)
             self._brush = None

@@ -1,12 +1,14 @@
-"""Input widgets: edit, checkbox, button, textarea."""
+"""Input widgets: edit, checkbox, radio, button, textarea."""
 
 from __future__ import annotations
 
-from typing import Callable, Optional, Union
+from typing import Callable, Optional
 
-from nativewin.core import win32
+from nativewin.core import metrics, win32
 from nativewin.state.binding import BoolState, State
 from nativewin.widgets.base import Widget, _finalize
+
+_radio_groups_started: set[int] = set()
 
 
 class EditInput(Widget):
@@ -17,10 +19,12 @@ class EditInput(Widget):
         win32.WS_CHILD
         | win32.WS_VISIBLE
         | win32.WS_CLIPSIBLINGS
-        | win32.WS_BORDER
         | win32.WS_TABSTOP
         | win32.ES_AUTOHSCROLL
+        | win32.ES_LEFT
     )
+    _window_ex_style = win32.WS_EX_CLIENTEDGE
+    fills_width = True
 
     def __init__(
         self,
@@ -36,8 +40,11 @@ class EditInput(Widget):
         self._password = password
         self._updating = False
 
+    def min_width(self) -> int:
+        return metrics.edit_min_width()
+
     def preferred_height(self, width: int) -> int:
-        return 26
+        return metrics.edit_height()
 
     def _on_created(self) -> None:
         if self._readonly:
@@ -88,20 +95,22 @@ class TextArea(Widget):
         win32.WS_CHILD
         | win32.WS_VISIBLE
         | win32.WS_CLIPSIBLINGS
-        | win32.WS_BORDER
         | win32.WS_TABSTOP
         | win32.ES_MULTILINE
         | win32.ES_AUTOVSCROLL
+        | win32.ES_AUTOHSCROLL
         | win32.WS_VSCROLL
         | win32.ES_WANTRETURN
     )
+    _window_ex_style = win32.WS_EX_CLIENTEDGE
+    fills_width = True
 
     def __init__(
         self,
         text: str = "",
         bind: Optional[State] = None,
         readonly: bool = False,
-        height: int = 80,
+        height: int = 64,
     ) -> None:
         super().__init__()
         self._text = text
@@ -109,6 +118,9 @@ class TextArea(Widget):
         self._readonly = readonly
         self._fixed_height = height
         self._lines: list[str] = []
+
+    def min_width(self) -> int:
+        return metrics.edit_min_width()
 
     def preferred_height(self, width: int) -> int:
         return self._fixed_height
@@ -132,17 +144,10 @@ class TextArea(Widget):
         if win32.IS_WINDOWS and self.hwnd:
             current_len = win32.user32.GetWindowTextLengthW(self.hwnd)
             win32.user32.SendMessageW(
-                self.hwnd,
-                win32.WM_SETTEXT if current_len == 0 else win32.WM_USER + 10,
-                0,
-                0,
+                self.hwnd, win32.EM_SETSEL, current_len, current_len
             )
-            # Append via EM_REPLACESEL equivalent
-            EM_SETSEL = 0x00B1
-            EM_REPLACESEL = 0x00C2
-            win32.user32.SendMessageW(self.hwnd, EM_SETSEL, current_len, current_len)
             suffix = ("\r\n" if current_len else "") + line
-            win32.user32.SendMessageW(self.hwnd, EM_REPLACESEL, 1, suffix)
+            win32.user32.SendMessageW(self.hwnd, win32.EM_REPLACESEL, 1, suffix)
 
 
 class CheckBox(Widget):
@@ -156,6 +161,7 @@ class CheckBox(Widget):
         | win32.WS_TABSTOP
         | win32.BS_AUTOCHECKBOX
     )
+    fills_width = False
 
     def __init__(
         self,
@@ -171,8 +177,11 @@ class CheckBox(Widget):
     def _create_text(self) -> str:
         return self._label
 
+    def intrinsic_width(self) -> int:
+        return metrics.check_width(self._label)
+
     def preferred_height(self, width: int) -> int:
-        return 22
+        return metrics.check_height()
 
     def _on_created(self) -> None:
         if self._bind_state is not None:
@@ -186,11 +195,13 @@ class CheckBox(Widget):
 
     def set_checked(self, checked: bool) -> None:
         if win32.IS_WINDOWS and self.hwnd:
-            win32.user32.SendMessageW(self.hwnd, 0x00F1, 1 if checked else 0, 0)  # BM_SETCHECK
+            win32.user32.SendMessageW(
+                self.hwnd, win32.BM_SETCHECK, 1 if checked else 0, 0
+            )
 
     def is_checked(self) -> bool:
         if win32.IS_WINDOWS and self.hwnd:
-            return bool(win32.user32.SendMessageW(self.hwnd, 0x00F0, 0, 0))  # BM_GETCHECK
+            return bool(win32.user32.SendMessageW(self.hwnd, win32.BM_GETCHECK, 0, 0))
         return self._checked
 
     def handle_command(self, notification: int) -> bool:
@@ -201,8 +212,74 @@ class CheckBox(Widget):
         return False
 
 
+class Radio(Widget):
+    """Radio button. Radios sharing the same State form one Win32 group."""
+
+    _class_name = "Button"
+    fills_width = False
+
+    def __init__(
+        self,
+        text: str,
+        bind: Optional[State] = None,
+        checked: bool = False,
+        start_group: bool = False,
+    ) -> None:
+        super().__init__()
+        self._label = text
+        self._bind_state = bind
+        self._checked = checked
+        style = (
+            win32.WS_CHILD
+            | win32.WS_VISIBLE
+            | win32.WS_CLIPSIBLINGS
+            | win32.WS_TABSTOP
+            | win32.BS_AUTORADIOBUTTON
+        )
+        if start_group:
+            style |= win32.WS_GROUP
+        self._window_style = style
+
+    def _create_text(self) -> str:
+        return self._label
+
+    def intrinsic_width(self) -> int:
+        return metrics.check_width(self._label)
+
+    def preferred_height(self, width: int) -> int:
+        return metrics.check_height()
+
+    def _on_created(self) -> None:
+        if self._bind_state is not None:
+            self._bind_state.bind(self._on_state_changed)
+            self.set_checked(self._bind_state.value == self._label)
+        else:
+            self.set_checked(self._checked)
+
+    def _on_state_changed(self, value: str) -> None:
+        self.set_checked(value == self._label)
+
+    def set_checked(self, checked: bool) -> None:
+        if win32.IS_WINDOWS and self.hwnd:
+            win32.user32.SendMessageW(
+                self.hwnd, win32.BM_SETCHECK, 1 if checked else 0, 0
+            )
+
+    def is_checked(self) -> bool:
+        if win32.IS_WINDOWS and self.hwnd:
+            return bool(win32.user32.SendMessageW(self.hwnd, win32.BM_GETCHECK, 0, 0))
+        return self._checked
+
+    def handle_command(self, notification: int) -> bool:
+        if notification == win32.BN_CLICKED:
+            if self._bind_state is not None:
+                self._bind_state.set(self._label)
+            return True
+        return False
+
+
 class Button(Widget):
-    """Push button control."""
+    """Standard dialog push button (content-sized, not stretched)."""
 
     _class_name = "Button"
     _window_style = (
@@ -212,6 +289,7 @@ class Button(Widget):
         | win32.WS_TABSTOP
         | win32.BS_PUSHBUTTON
     )
+    fills_width = False
 
     def __init__(self, text: str, on_click: Optional[Callable[[], None]] = None) -> None:
         super().__init__()
@@ -221,8 +299,11 @@ class Button(Widget):
     def _create_text(self) -> str:
         return self._label
 
+    def intrinsic_width(self) -> int:
+        return metrics.button_size(self._label)[0]
+
     def preferred_height(self, width: int) -> int:
-        return 28
+        return metrics.button_size(self._label)[1]
 
     def handle_command(self, notification: int) -> bool:
         if notification == win32.BN_CLICKED and self._on_click:
@@ -245,7 +326,7 @@ def textarea(
     text: str = "",
     bind: Optional[State] = None,
     readonly: bool = False,
-    height: int = 80,
+    height: int = 64,
 ) -> TextArea:
     """Create a multi-line text area."""
     return _finalize(TextArea(text=text, bind=bind, readonly=readonly, height=height))
@@ -260,6 +341,23 @@ def checkbox(
     return _finalize(CheckBox(text=text, bind=bind, checked=checked))
 
 
+def radio(
+    text: str,
+    bind: Optional[State] = None,
+    checked: bool = False,
+) -> Radio:
+    """Create a radio button. Shared `bind` State values form one group."""
+    start_group = False
+    if bind is None:
+        start_group = True
+    else:
+        key = id(bind)
+        if key not in _radio_groups_started:
+            _radio_groups_started.add(key)
+            start_group = True
+    return _finalize(Radio(text=text, bind=bind, checked=checked, start_group=start_group))
+
+
 def button(text: str, on_click: Optional[Callable[[], None]] = None) -> Button:
-    """Create a push button."""
+    """Create a standard dialog push button."""
     return _finalize(Button(text=text, on_click=on_click))

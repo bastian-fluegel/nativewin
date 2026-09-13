@@ -19,29 +19,30 @@ python demo.py
 ```python
 import nativewin as nw
 
-win = nw.Window("System Control", width=380, height=420)
-status = nw.State("Standby")
+win = nw.Window("System Control", width=320, height=380)
+host = nw.State("srv-dc-01")
 
-with nw.vstack(padding=16, spacing=10):
+with nw.vstack():
     nw.label("Target Host:")
-    host = nw.input(bind=nw.State("srv-dc-01"))
-    btn = nw.button("Execute Action")
-    log = nw.textarea(readonly=True, height=80)
+    nw.input(bind=host)
+    btn = nw.button("Execute")
+    log = nw.textarea(readonly=True)
 
 while nw.is_running(win):
     ev = nw.get_event()
     if ev == btn:
-        log.append_line(f"Running on {host}...")
-        status.set("Processing")
+        log.append_line(f"Running on {host.value}...")
 
 win.destroy()
 ```
+
+Standard controls: `label`, `input`, `button`, `checkbox`, `radio`, `combobox`, `listbox`, `textarea`, `divider`, `groupbox`. Window scrollbars appear only when content overflows.
 
 ## Architecture
 
 ```
 nativewin/
-├── core/       win32.py, bootstrap.py, gdiplus.py
+├── core/       win32.py, bootstrap.py, metrics.py, gdiplus.py
 ├── state/      Reactive State binding
 ├── layout/     vstack / hstack / groupbox managers
 ├── widgets/    Win32 control wrappers

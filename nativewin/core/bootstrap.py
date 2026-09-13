@@ -65,8 +65,8 @@ def _enable_dpi_awareness() -> None:
         return
 
     try:
-        # Windows 10 1703+: DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
-        win32.kernel32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+        # Windows 10 1703+: DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 (user32)
+        win32.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
     except (AttributeError, OSError):
         try:
             shcore = ctypes.windll.shcore
@@ -101,9 +101,9 @@ def _enable_comctl_v6() -> None:
         return
 
     _actctx_handle = handle
-    cookie = ctypes.c_ulong()
+    cookie = win32.ULONG_PTR()
     if win32.kernel32.ActivateActCtx(handle, ctypes.byref(cookie)):
-        _cookie = cookie.value
+        _cookie = int(cookie.value)
 
 
 def initialize() -> None:

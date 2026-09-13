@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.1.1] - 2026-09-13
+
+### Fixed
+
+- Define `WNDPROC` via `WINFUNCTYPE` — `ctypes.wintypes` has no `WNDPROC` on Windows, which crashed `import nativewin`.
+- Alias other missing `wintypes` names (`USHORT`, `UINT_PTR`, `ULONG_PTR`, `HRESULT`, `ATOM`, `COLORREF`) so ActCtx, menus, and GDI prototypes do not fail next.
+
 ## [0.1.0] - 2026-09-13
 
 ### Added

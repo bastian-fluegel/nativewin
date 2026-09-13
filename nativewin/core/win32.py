@@ -27,12 +27,13 @@ else:
     shell32 = None  # type: ignore[assignment]
     uxtheme = None  # type: ignore[assignment]
 
-# Fallback types missing from wintypes on non-Windows
+# ctypes.wintypes omits several Win32 aliases on all platforms (including Windows).
 UINT_PTR = getattr(wintypes, "UINT_PTR", ctypes.c_size_t)
 ULONG_PTR = getattr(wintypes, "ULONG_PTR", ctypes.c_size_t)
 COLORREF = getattr(wintypes, "COLORREF", wintypes.DWORD)
 HRESULT = getattr(wintypes, "HRESULT", ctypes.c_long)
 ATOM = getattr(wintypes, "ATOM", wintypes.WORD)
+USHORT = getattr(wintypes, "USHORT", wintypes.WORD)
 
 # Pointer-sized aliases -------------------------------------------------------
 HWND = wintypes.HWND
@@ -53,12 +54,9 @@ LRESULT = wintypes.LPARAM
 WPARAM = wintypes.WPARAM
 LPARAM = wintypes.LPARAM
 
-# WNDPROC type alias (not present in wintypes on non-Windows)
-if IS_WINDOWS:
-    WNDPROC = wintypes.WNDPROC
-else:
-    _FUNCTYPE = getattr(ctypes, "WINFUNCTYPE", ctypes.CFUNCTYPE)
-    WNDPROC = _FUNCTYPE(LRESULT, HWND, wintypes.UINT, WPARAM, LPARAM)
+# ctypes.wintypes has no WNDPROC on Windows or elsewhere.
+_FUNCTYPE = getattr(ctypes, "WINFUNCTYPE", ctypes.CFUNCTYPE)
+WNDPROC = _FUNCTYPE(LRESULT, HWND, wintypes.UINT, WPARAM, LPARAM)
 
 # Window messages -------------------------------------------------------------
 WM_NULL = 0x0000
@@ -395,9 +393,9 @@ class ACTCTXW(ctypes.Structure):
         ("cbSize", wintypes.ULONG),
         ("dwFlags", wintypes.DWORD),
         ("lpSource", wintypes.LPCWSTR),
-        ("wProcessorArchitecture", wintypes.USHORT),
-        ("wLangId", wintypes.USHORT),
-        ("wAssemblyVersion", wintypes.USHORT * 4),
+        ("wProcessorArchitecture", USHORT),
+        ("wLangId", USHORT),
+        ("wAssemblyVersion", USHORT * 4),
         ("lpAssemblyDirectory", wintypes.LPCWSTR),
         ("lpResourceName", wintypes.LPCWSTR),
         ("lpApplicationName", wintypes.LPCWSTR),
@@ -456,7 +454,7 @@ def setup_prototypes() -> None:
     user32.DefWindowProcW.restype = LRESULT
     user32.DefWindowProcW.argtypes = [HWND, wintypes.UINT, WPARAM, LPARAM]
 
-    user32.RegisterClassW.restype = wintypes.ATOM
+    user32.RegisterClassW.restype = ATOM
     user32.RegisterClassW.argtypes = [ctypes.POINTER(WNDCLASSW)]
 
     user32.CreateWindowExW.restype = HWND
@@ -589,7 +587,7 @@ def setup_prototypes() -> None:
     user32.GetParent.restype = HWND
     user32.GetParent.argtypes = [HWND]
 
-    user32.SetWindowTheme.restype = wintypes.HRESULT
+    user32.SetWindowTheme.restype = HRESULT
     user32.SetWindowTheme.argtypes = [HWND, wintypes.LPCWSTR, wintypes.LPCWSTR]
 
     user32.LoadIconW.restype = HICON
@@ -653,7 +651,7 @@ def setup_prototypes() -> None:
     user32.AppendMenuW.argtypes = [
         HMENU,
         wintypes.UINT,
-        wintypes.UINT_PTR,
+        UINT_PTR,
         wintypes.LPCWSTR,
     ]
 
@@ -676,16 +674,16 @@ def setup_prototypes() -> None:
     kernel32.CreateActCtxW.argtypes = [ctypes.POINTER(ACTCTXW)]
 
     kernel32.ActivateActCtx.restype = wintypes.BOOL
-    kernel32.ActivateActCtx.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.ULONG_PTR)]
+    kernel32.ActivateActCtx.argtypes = [wintypes.HANDLE, ctypes.POINTER(ULONG_PTR)]
 
     kernel32.DeactivateActCtx.restype = wintypes.BOOL
-    kernel32.DeactivateActCtx.argtypes = [wintypes.DWORD, wintypes.ULONG_PTR]
+    kernel32.DeactivateActCtx.argtypes = [wintypes.DWORD, ULONG_PTR]
 
     kernel32.ReleaseActCtx.restype = None
     kernel32.ReleaseActCtx.argtypes = [wintypes.HANDLE]
 
     gdi32.CreateSolidBrush.restype = HBRUSH
-    gdi32.CreateSolidBrush.argtypes = [wintypes.COLORREF]
+    gdi32.CreateSolidBrush.argtypes = [COLORREF]
 
     gdi32.DeleteObject.restype = wintypes.BOOL
     gdi32.DeleteObject.argtypes = [HGDIOBJ]
@@ -697,7 +695,7 @@ def setup_prototypes() -> None:
     shell32.Shell_NotifyIconW.argtypes = [wintypes.DWORD, ctypes.POINTER(NOTIFYICONDATAW)]
 
     if uxtheme is not None:
-        uxtheme.SetWindowTheme.restype = wintypes.HRESULT
+        uxtheme.SetWindowTheme.restype = HRESULT
         uxtheme.SetWindowTheme.argtypes = [
             HWND,
             wintypes.LPCWSTR,
